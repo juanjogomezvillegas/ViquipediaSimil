@@ -4,10 +4,10 @@ package utils
 
 object Simil extends App {
   // mètode quicksort per ordenar de més gran a més petit un list de tuples de (String, Int), només per mostrar els resultats
-  def quicksortf(xs: Array[(String, Int)]): Array[(String, Int)] =
+  def quicksortf[A](xs: Array[(A, Int)]): Array[(A, Int)] =
     if xs.length <= 1 then xs
     else
-      val pivot: (String, Int) = xs(xs.length / 2)
+      val pivot: (A, Int) = xs(xs.length / 2)
       Array.concat(
         quicksortf(xs filter (x => pivot._2 < x._2)),
         xs filter (x => x._2 == pivot._2),
@@ -25,14 +25,14 @@ object Simil extends App {
     textFitxerNorm.trim().split(" ").toList
   }
 
-  def llistaFreqs(listTotalWords: List[String]): List[(String, Int)] = {
-    def comptaFreq(word: String, acum: List[(String, Int)]): List[(String, Int)] = {
+  def llistaFreqs[A](listTotalWords: List[A]): List[(A, Int)] = {
+    def comptaFreq(word: A, acum: List[(A, Int)]): List[(A, Int)] = {
       acum match
         case Nil => (word, 1) :: Nil
         case cap :: cua => if cap._1 == word then (cap._1, cap._2 + 1) :: cua else cap :: comptaFreq(word, cua)
     }
 
-    var listCountWords: List[(String, Int)] = Nil
+    var listCountWords: List[(A, Int)] = Nil
 
     // Comptar ocurrencies de paraules
     for word <- listTotalWords do listCountWords = comptaFreq(word, listCountWords)
@@ -94,7 +94,16 @@ object Simil extends App {
     // I obtenir la llista de frequències
     val listCountWords = llistaFreqs(listTotalWords)
 
-    println(listCountWords)
+    val listTotesFreqs = listCountWords `map` (x => x._2) // ens quedem només amb el nombre d'aparicions de cada paraula
+
+    // Compta quantes vegades apareix un valor de comptador de vegades que apareix cada paraula
+    val listCountFreqs = quicksortf(llistaFreqs(listTotesFreqs).toArray).toList
+
+    // Mostra els resultats
+    println("Les 10 frequencies mes frequents:")
+    for (ff <- listCountFreqs.take(10)) println(s"${ff._2} paraules apareixen ${ff._1} vegades")
+    println("\nLes 5 frequencies menys frequents:")
+    for (ff <- listCountFreqs.reverse.take(5)) println(s"${ff._2} paraules apareixen ${ff._1} vegades")
   }
 
   // Fixem els dos fitxes per fer proves
@@ -107,14 +116,20 @@ object Simil extends App {
   val textFitxer2 = ProcessListStrings.llegirFitxer(fitxer2)
 
   // Freqüències de paraules
+  println("Freqüències de paraules")
   val freqsWords = Simil.freq(textFitxer1)
+  println()
 
   // Sense stop-words
+  println("Sense stop-words")
   val listStopWords = ProcessListStrings.llegirFitxer("assets/simil/stopwords/english-stop.txt").replaceAll("'", "\n").split("\n")
   val freqsWordsNonStop = Simil.nonstopfreq(textFitxer1, listStopWords.toList)
+  println()
 
   // Distribució de paraules
+  println("Distribució de paraules")
   paraulafreqfreq(textFitxer1)
+  println()
 
   // ngrames
 
