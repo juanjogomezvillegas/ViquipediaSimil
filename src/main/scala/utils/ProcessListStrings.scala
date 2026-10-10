@@ -2,13 +2,12 @@ package edu.udg.pda
 package utils
 
 import org.apache.commons.io.{FileUtils, IOUtils}
-
 import java.io.File
 import java.nio.charset.StandardCharsets
 
 object ProcessListStrings {
-
-  // donal el nom d'un fitxer en retorem el seu contingut com a String
+  
+  // donat el nom d'un fitxer en retornem el seu contingut com a String
   def llegirFitxer(fitxer: String): String = {
     val initialFile = new File(fitxer)
     val targetStream = FileUtils.openInputStream(initialFile)
