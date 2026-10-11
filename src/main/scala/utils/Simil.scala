@@ -44,8 +44,15 @@ object Simil extends App {
       println(s"${f._1}\t${f._2}\t${String.format("%.2f", percentage).replace(".", ",")}")
   }
 
+  // donada una llista de tuples (String, Int), on Int són les n vegades que apareix una paraula String; i retorna una llista de String i pesos
+  def freqToPes(listWords: List[(String, Int)]): List[(String, Double)] = {
+    val maxList = listWords.map(x => x._2).max // troba el màxim de vegades que apareix una paraula
+
+    listWords.map(x => (x._1, x._2.toDouble / maxList)) // Calcula per cada paraula, el seu pes
+  }
+
   // donat un llibre en text pla (string) retorna una llista de tuples de paraules i el número d'aparicions
-  def freq(textFitxer: String): List[(String, Int)] = {
+  def freq(textFitxer: String, mostrar: Boolean = false): List[(String, Int)] = {
     // Primer pas, normalitzar a un String format de paraules en minúscules separades per espais
     val listTotalWords = normalitzar(textFitxer)
 
@@ -53,12 +60,13 @@ object Simil extends App {
     val listCountWords = llistaFreqs(listTotalWords)
 
     // Tercer pas, mostrar els resultats
-    mostrarResults(listTotalWords, listCountWords)
+    if mostrar then mostrarResults(listTotalWords, listCountWords)
 
     listCountWords
   }
 
-  def nonstopfreq(textFitxer: String, stopWords: List[String]): List[(String, Int)] = {
+  // el mateix que freq, però eliminant les stop-words
+  def nonstopfreq(textFitxer: String, stopWords: List[String], mostrar: Boolean = false): List[(String, Int)] = {
     // Primer pas, normalitzar a un String format de paraules en minúscules separades per espais
     val listTotalWords = normalitzar(textFitxer)
 
@@ -69,16 +77,15 @@ object Simil extends App {
     val listCountWords = llistaFreqs(listNonStopWords)
 
     // Quart pas, mostrar resultats
-    mostrarResults(listNonStopWords, listCountWords)
+    if mostrar then mostrarResults(listNonStopWords, listCountWords)
 
     listCountWords
   }
 
+  // partint de freq, calcula les freqüències de les freqüències de cada paraula
   def paraulafreqfreq(textFitxer: String): Unit = {
-    // Primer pas, normalitzar a un String format de paraules en minúscules separades per espais
-    val listTotalWords = normalitzar(textFitxer)
-    // I obtenir la llista de frequències
-    val listCountWords = llistaFreqs(listTotalWords)
+    // Primer pas, normalitzar a una List[String] i obtenir la llista de frequències
+    val listCountWords = freq(textFitxer)
 
     // Segon pas, ens quedem només amb el nombre d'aparicions de cada paraula (frequencies)
     val listFreqsWords = listCountWords `map` (x => x._2)
@@ -93,20 +100,44 @@ object Simil extends App {
     for (ff <- listFreqsFreqsWords.reverse.take(5)) println(s"${ff._2} paraules apareixen ${ff._1} vegades")
   }
 
-  def ngrames(textFitxer: String, n: Int): List[(String, Int)] = {
+  // donada una n i un String, dels ngrames de l’String rebut, troba les freqüències
+  def ngrames(textFitxer: String, n: Int, mostrar: Boolean = false): List[(String, Int)] = {
     // Primer pas, normalitzar a un String format de paraules en minúscules separades per espais
     val listTotalWords = normalitzar(textFitxer)
 
     // Segon pas, donada la llista de paraules, amb sliding, s'agafen les paraules de tres en tres (paràmetre n de sliding) i es converteix en un string separats per " "
-    val listNGrames = listTotalWords.sliding(3).toList `map` (x => x.mkString(" "))
+    val listNGrames = listTotalWords.sliding(n).toList `map` (x => x.mkString(" "))
 
     // Tercer pas, obtenir la llista de freqüències de ngrames
     val listCountNGrames = llistaFreqs(listNGrames)
 
     // Quart pas, mostrar els resultats
-    mostrarResults(listNGrames, listCountNGrames)
+    if mostrar then mostrarResults(listNGrames, listCountNGrames)
 
     listCountNGrames
+  }
+
+  // donats dos String ens dona el seu coeficient de similitud de cosinus, un valor entre 0 (menys similar) i 1 (més similar)
+  def cosinesim(textFitxer1: String, textFitxer2: String, stopWords: List[String]): Double = {
+    val listWordsF1 = nonstopfreq(textFitxer1, stopWords)
+    val listWordsF2 = nonstopfreq(textFitxer2, stopWords)
+
+    val listPesosF1 = freqToPes(listWordsF1)
+    val listPesosF2 = freqToPes(listWordsF2)
+
+    val listTotesParaules = (listWordsF1.map(x => x._1) ++ listWordsF2.map(x => x._1)).distinct
+
+    val mapPesosF1 = listPesosF1.toMap
+    val mapPesosF2 = listPesosF2.toMap
+
+    val a = listTotesParaules.map(x => mapPesosF1.getOrElse(x, 0.0))
+    val b = listTotesParaules.map(x => mapPesosF2.getOrElse(x, 0.0))
+
+    val num = a.zip(b).map((x, y) => x * y).sum
+    val dem1 = Math.sqrt(a.map(x => x * x).sum)
+    val dem2 = Math.sqrt(b.map(x => x * x).sum)
+
+    if (dem1 * dem2) == 0 then 0.0 else num / (dem1 * dem2)
   }
 
   // Fixem els dos fitxes per fer proves
@@ -120,13 +151,13 @@ object Simil extends App {
 
   // Freqüències de paraules
   println("Freqüències de paraules")
-  val freqsWords = Simil.freq(textFitxer1)
+  val freqsWords = Simil.freq(textFitxer1, mostrar = true)
   println()
 
   // Sense stop-words
   println("Sense stop-words")
   val listStopWords = ProcessListStrings.llegirFitxer("assets/simil/stopwords/english-stop.txt").replaceAll("'", "\n").split("\n")
-  val freqsWordsNonStop = Simil.nonstopfreq(textFitxer1, listStopWords.toList)
+  val freqsWordsNonStop = Simil.nonstopfreq(textFitxer1, listStopWords.toList, mostrar = true)
   println()
 
   // Distribució de paraules
@@ -136,10 +167,11 @@ object Simil extends App {
 
   // ngrames
   println("Ngrames")
-  val freqsNGrames = Simil.ngrames(textFitxer1, 3)
+  val freqsNGrames = Simil.ngrames(textFitxer1, 3, mostrar = true)
   println()
 
   // Vector space model
   println("Vector space model")
-  println()
+  val coefcosinusim = Simil.cosinesim(textFitxer1, textFitxer2, listStopWords.toList)
+  println(s"La similitud cosinus entre $fitxer1 i $fitxer2 és $coefcosinusim")
 }
