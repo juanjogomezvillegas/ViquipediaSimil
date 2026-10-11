@@ -3,6 +3,22 @@ package utils
 
 
 object Simil extends App {
+  def llistaFreqs[A](listTotalWords: List[A]): List[(A, Int)] = {
+    def comptaFreq(word: A, acum: List[(A, Int)]): List[(A, Int)] = {
+      acum match
+        case Nil => (word, 1) :: Nil
+        case cap :: cua => if cap._1 == word then (cap._1, cap._2 + 1) :: cua else cap :: comptaFreq(word, cua)
+    }
+
+    var listCountWords: List[(A, Int)] = Nil
+
+    // Comptar ocurrencies de paraules
+    for word <- listTotalWords do listCountWords = comptaFreq(word, listCountWords)
+
+    // Finalment, retornem el resultat (la llista de tuples (String, Int))
+    listCountWords
+  }
+
   // mètode quicksort per ordenar de més gran a més petit un list de tuples de (String, Int), només per mostrar els resultats
   def quicksortf[A](xs: Array[(A, Int)]): Array[(A, Int)] =
     if xs.length <= 1 then xs
@@ -25,22 +41,6 @@ object Simil extends App {
     textFitxerNorm.trim().split(" ").toList
   }
 
-  def llistaFreqs[A](listTotalWords: List[A]): List[(A, Int)] = {
-    def comptaFreq(word: A, acum: List[(A, Int)]): List[(A, Int)] = {
-      acum match
-        case Nil => (word, 1) :: Nil
-        case cap :: cua => if cap._1 == word then (cap._1, cap._2 + 1) :: cua else cap :: comptaFreq(word, cua)
-    }
-
-    var listCountWords: List[(A, Int)] = Nil
-
-    // Comptar ocurrencies de paraules
-    for word <- listTotalWords do listCountWords = comptaFreq(word, listCountWords)
-
-    // Finalment, retornem el resultat (la llista de tuples (String, Int))
-    listCountWords
-  }
-
   def mostrarResults(listTotalWords: List[String], listCountWords: List[(String, Int)]): Unit = {
     val listOrd = quicksortf(listCountWords.toArray).take(10) // ordena la llista listCountWords i obtenim els deu primers
     println(s"Num de paraules: ${listTotalWords.length}\tDiferents: ${listCountWords.length}")
@@ -57,33 +57,27 @@ object Simil extends App {
     // Primer pas, normalitzar a un String format de paraules en minúscules separades per espais
     val listTotalWords = normalitzar(textFitxer)
 
-    // Segon pas, obtenir la llista de frequències
-    val listCountWords = llistaFreqs(listTotalWords)
+    // Segon pas, obtenir la llista de frequències amb les funcions: groupby (agrupa paraules iguals) i map (per cada grup retorna (paraula, longitud de la paraula))
+    val listCountWords = listTotalWords.groupBy(x => x).map(x => (x._1, x._2.length)).toList
 
-    // Tercer pas, mostrar resultats
+    // Tercer pas, mostrar els resultats
     mostrarResults(listTotalWords, listCountWords)
 
     listCountWords
   }
 
-  def nonstopfreq(textFitxer: String, llistaStopWords: List[String]): List[(String, Int)] = {
-    def treuNonStopWords(listWords: List[String], stopWords: List[String], acum: List[String]): List[String] = {
-      listWords match
-        case Nil => acum
-        case cap :: cua => if stopWords `contains` cap then treuNonStopWords(cua, stopWords, acum) else treuNonStopWords(cua, stopWords, cap :: acum)
-    }
-
+  def nonstopfreq(textFitxer: String, stopWords: List[String]): List[(String, Int)] = {
     // Primer pas, normalitzar a un String format de paraules en minúscules separades per espais
     val listTotalWords = normalitzar(textFitxer)
 
-    // Segon pas, eliminem els stop-words de la llista de totes les paraules
-    val listSenseStopsWords = treuNonStopWords(listTotalWords, llistaStopWords, Nil)
+    // Segon pas, eliminem els stop-words de la llista de totes les paraules amb la funció filterNot, funciona com filter amb not
+    val listNonStopWords = listTotalWords.filterNot(stopWords `contains` _)
 
     // Tercer pas, obtenir la llista de frequències
-    val listCountWords = llistaFreqs(listSenseStopsWords)
+    val listCountWords = listNonStopWords.groupBy(x => x).map(x => (x._1, x._2.length)).toList
 
     // Quart pas, mostrar resultats
-    mostrarResults(listSenseStopsWords, listCountWords)
+    mostrarResults(listNonStopWords, listCountWords)
 
     listCountWords
   }
@@ -92,18 +86,19 @@ object Simil extends App {
     // Primer pas, normalitzar a un String format de paraules en minúscules separades per espais
     val listTotalWords = normalitzar(textFitxer)
     // I obtenir la llista de frequències
-    val listCountWords = llistaFreqs(listTotalWords)
+    val listCountWords = listTotalWords.groupBy(x => x).map(x => (x._1, x._2.length)).toList
 
-    val listTotesFreqs = listCountWords `map` (x => x._2) // ens quedem només amb el nombre d'aparicions de cada paraula
+    // Segon pas, ens quedem només amb el nombre d'aparicions de cada paraula (frequencies)
+    val listFreqsWords = listCountWords `map` (x => x._2)
 
-    // Compta quantes vegades apareix un valor de comptador de vegades que apareix cada paraula
-    val listCountFreqs = quicksortf(llistaFreqs(listTotesFreqs).toArray).toList
+    // Tercer pas, compta quantes vegades apareix una freqüència, com comptar la freqüència de les freqüències
+    val listFreqsFreqsWords = `quicksortf` (listFreqsWords.groupBy(x => x).map(x => (x._1, x._2.length)).toArray).toList
 
     // Mostra els resultats
     println("Les 10 frequencies mes frequents:")
-    for (ff <- listCountFreqs.take(10)) println(s"${ff._2} paraules apareixen ${ff._1} vegades")
+    for (ff <- listFreqsFreqsWords.take(10)) println(s"${ff._2} paraules apareixen ${ff._1} vegades")
     println("\nLes 5 frequencies menys frequents:")
-    for (ff <- listCountFreqs.reverse.take(5)) println(s"${ff._2} paraules apareixen ${ff._1} vegades")
+    for (ff <- listFreqsFreqsWords.reverse.take(5)) println(s"${ff._2} paraules apareixen ${ff._1} vegades")
   }
 
   // Fixem els dos fitxes per fer proves
@@ -123,7 +118,8 @@ object Simil extends App {
   // Sense stop-words
   println("Sense stop-words")
   val listStopWords = ProcessListStrings.llegirFitxer("assets/simil/stopwords/english-stop.txt").replaceAll("'", "\n").split("\n")
-  val freqsWordsNonStop = Simil.nonstopfreq(textFitxer1, listStopWords.toList)
+  //val freqsWordsNonStop =
+  Simil.nonstopfreq(textFitxer1, listStopWords.toList)
   println()
 
   // Distribució de paraules
