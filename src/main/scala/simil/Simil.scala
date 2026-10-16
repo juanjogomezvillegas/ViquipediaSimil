@@ -1,6 +1,7 @@
 package edu.udg.pda
-package utils
+package simil
 
+import utils.ProcessListStrings
 
 object Simil extends App {
   // mètode quicksort per ordenar de més gran a més petit un list de tuples de (String, Int), només per mostrar els resultats
@@ -119,19 +120,21 @@ object Simil extends App {
 
   // donats dos String ens dona el seu coeficient de similitud de cosinus, un valor entre 0 (menys similar) i 1 (més similar)
   def cosinesim(textFitxer1: String, textFitxer2: String, stopWords: List[String]): Double = {
-    val listWordsF1 = nonstopfreq(textFitxer1, stopWords)
-    val listWordsF2 = nonstopfreq(textFitxer2, stopWords)
+    def getOrElse(elem: String, elements: List[(String, Double)]): Double =
+      elements match
+        case Nil => 0.0
+        case (x, n) :: xs => if x == elem then n else getOrElse(elem, xs)
 
-    val listPesosF1 = freqToPes(listWordsF1)
-    val listPesosF2 = freqToPes(listWordsF2)
+    val listOfPesFitx1 = freqToPes(nonstopfreq(textFitxer1, stopWords))
+    val listOfPesFitx2 = freqToPes(nonstopfreq(textFitxer2, stopWords))
 
-    val listTotesParaules = (listWordsF1.map(x => x._1) ++ listWordsF2.map(x => x._1)).distinct
+    val listAllWords = (listOfPesFitx1.map(x => x._1) ++ listOfPesFitx2.map(x => x._1)).distinct
 
-    val mapPesosF1 = listPesosF1.toMap
-    val mapPesosF2 = listPesosF2.toMap
+    val mapOfPesFitx1 = listOfPesFitx1.toMap
+    val mapOfPesFitx2 = listOfPesFitx2.toMap
 
-    val a = listTotesParaules.map(x => mapPesosF1.getOrElse(x, 0.0))
-    val b = listTotesParaules.map(x => mapPesosF2.getOrElse(x, 0.0))
+    val a = listAllWords.map(x => mapOfPesFitx1.getOrElse(x, 0.0))
+    val b = listAllWords.map(x => mapOfPesFitx2.getOrElse(x, 0.0))
 
     val num = a.zip(b).map((x, y) => x * y).sum
     val dem1 = Math.sqrt(a.map(x => x * x).sum)
@@ -174,4 +177,7 @@ object Simil extends App {
   println("Vector space model")
   val coefcosinusim = Simil.cosinesim(textFitxer1, textFitxer2, listStopWords.toList)
   println(s"La similitud cosinus entre $fitxer1 i $fitxer2 és $coefcosinusim")
+  
+  // Taules amb els resultats de les comparacions finals
+  val llibres = ["/pg11.txt","/pg12.txt","/pg74.txt","/pg2500.txt"]
 }
