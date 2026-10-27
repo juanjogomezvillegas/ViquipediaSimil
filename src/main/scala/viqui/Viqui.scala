@@ -135,28 +135,7 @@ class MapReduce[K1,V1,K2,V2,V3](
 
   }
 }
-/*
-object ViquiMapper extends App {
-  val nmappers = 1
-  val nreducers = 1
 
-  val documents = List()
-
-  implicit val timeout: Timeout = Timeout(10000.seconds) // L'implicit permet fixar el timeout per a la pregunta
-  val systema: ActorSystem = ActorSystem("sistema") // ActorSystem per a crear els actors
-
-  // actor
-  val documentsViqui = systema.actorOf(
-    Props(classOf[MapReduce[String, (String, Double, String), String, Double, Double]], // Els tipus són K1, V1, K2, V2, V3, respectivament
-      documents, Viqui.mapping, Viqui.reducing),
-    name = "masterDocumentsViqui"
-  )
-  val futurEx1 = documentsViqui ? MapReduceCompute() // demanem les dades a l'actor que fa de master
-  val resultat1: Map[String, Double] = Await.result(futurEx1, Duration.Inf).asInstanceOf[Map[String, Double]]
-  println("EXERCICI 1") // mostrem les dades per pantalla
-  for (r1 <- resultat1) println(r1)
-}
-*/
 object Viqui extends App {
 
   // donat un bloc de codi de tipus genèric, retorna una tupla amb el retorn del codi i el temps que ha trigat en executar-se
@@ -174,8 +153,9 @@ object Viqui extends App {
 
   println(testParse)
 
+  /*
+  mapreduce(documents, mapping, reducing)
 
-/*
   // EX 1. Useu el MapReduce per saber quant ha gastat cada persona
   def mapping(supermercat: String, clients: List[(String, Double, String)]): List[(String, Double)] = {
     for (client <- clients) yield (client._1, client._2) // itera la llista de clients del supermercat, i retorna una tupla amb el nom d'un client i el que ha gastat
