@@ -11,6 +11,7 @@ import akka.actor.{Actor, ActorRef, ActorSystem, PoisonPill, Props}
 
 import mapreduce.*
 import utils.ProcessListStrings
+import utils.ViquipediaParse
 
 // L'Actor MapReduce és polimòrfic amb els tipus de les claus valor de l'entrada [K1,V1], la clau i valor intermitjos [k2,v2]
 // i la clau i valor finals [K2,V3].
@@ -134,7 +135,7 @@ class MapReduce[K1,V1,K2,V2,V3](
 
   }
 }
-
+/*
 object ViquiMapper extends App {
   val nmappers = 1
   val nreducers = 1
@@ -155,9 +156,26 @@ object ViquiMapper extends App {
   println("EXERCICI 1") // mostrem les dades per pantalla
   for (r1 <- resultat1) println(r1)
 }
-
+*/
 object Viqui extends App {
 
+  // donat un bloc de codi de tipus genèric, retorna una tupla amb el retorn del codi i el temps que ha trigat en executar-se
+  def timeMeasurement[A](block: => A): (A, Double) = {
+    val t0 = System.currentTimeMillis()
+    val retorn = block
+    val t1 = System.currentTimeMillis()
+    (retorn, t1 - t0)
+  }
+
+  val documentsDir = "assets/viquipedia/documents"
+  val exampleFilename = documentsDir + "/32509.xml"
+
+  def testParse: ViquipediaParse.ResultViquipediaParsing = ViquipediaParse.parseViquipediaFile(exampleFilename)
+
+  println(testParse)
+
+
+/*
   // EX 1. Useu el MapReduce per saber quant ha gastat cada persona
   def mapping(supermercat: String, clients: List[(String, Double, String)]): List[(String, Double)] = {
     for (client <- clients) yield (client._1, client._2) // itera la llista de clients del supermercat, i retorna una tupla amb el nom d'un client i el que ha gastat
@@ -166,5 +184,5 @@ object Viqui extends App {
   def reducing(client: String, imports: List[Double]): (String, Double) = {
     (client, imports.sum) // rep un client i una llista de despeses seves en tots els supermercats, retorna una tupla amb el mateix nom i la suma dels imports
   }
-  
+  */
 }
