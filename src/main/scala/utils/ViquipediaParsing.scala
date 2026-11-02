@@ -50,5 +50,5 @@ object ViquipediaParse extends App {
 
   def testParse: ResultViquipediaParsing = parseViquipediaFile(exampleFilename)
 
-  println(testParse)
+  //println(testParse)
 }
