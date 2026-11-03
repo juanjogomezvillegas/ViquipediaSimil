@@ -167,18 +167,20 @@ def MR[K1, V1, K2, V2, V3](input: List[(K1, List[V1])],
 
 object MRFunctions {
   // Funcions mapping i reducing
-  def mappingMitjanaRefs(fitxer: String, rutes: List[String]): List[(String, (Int, Int))] = {
-    val res = ViquipediaParse.parseViquipediaFile(rutes.head)
-    res match
-      case ViquipediaParse.ResultViquipediaParsing(_, _, refs) => List((fitxer, (refs.distinct.length, 1)))
-      case _ => List()
+  def mappingMitjanaRefs(titol: String, refs: List[String]): List[(String, (Int, Int))] = {
+    List((titol, (refs.length, 1)))
+  }
+  def reducingGetMitjanaRefs(titol: String, totalRefsAndPagines: List[(Int, Int)]): (String, Double) = {
+    val totalRefs = totalRefsAndPagines.map(_._1).sum
+    val totalPagines = totalRefsAndPagines.map(_._2).sum
+    (titol, totalRefs.toDouble / totalPagines)
   }
 
-  def reducingGetMitjanaRefs(fitxer: String, numTotalRefs: List[(Int, Int)]): (String, Double) = {
-    val totalRefs = numTotalRefs.map(_._1).sum
-    val totalPagines = numTotalRefs.map(_._2).sum
-    (fitxer, totalRefs.toDouble / totalPagines)
-  }
+  /*
+  * Punt 1 (Mitjana de referències): El tens a un 95%. El teu MapReduce ja genera la llista de totes les pàgines amb els
+  * seus enllaços sortints calculats de manera impecable. Per tancar-lo del tot, només et falta sumar tots els valors d'aquest
+  * mapa i dividir-los pel nombre total d'elements per obtenir l'únic número de la mitjana global, tal com hem comentat ara mateix.
+  * */
 }
 
 object Viqui extends App {
@@ -193,16 +195,47 @@ object Viqui extends App {
     (retorn, (t1 - t0).toDouble / 1000)
   }
 
+  def generarLlistaFitxersRefs(fitxer: String): (String, List[String]) = {
+    val res = ViquipediaParse.parseViquipediaFile(fitxer)
+    res match
+      case ViquipediaParse.ResultViquipediaParsing(titol, _, refs) =>
+        // Netegem els links de manera eficient un sol cop
+        val auxRefsNets = refs.map(raw =>
+          val net = raw.stripPrefix("[[").stripSuffix("]]")
+          val partEsq = net.split("\\|").headOption.getOrElse("").trim
+          val destiFinal = partEsq.split("#").headOption.getOrElse("").trim
+
+          if (destiFinal.length > 0 && destiFinal != titol.trim) destiFinal else "" // eliminem autoenllaços i enllaços interns
+        )
+        val refsNets = auxRefsNets.filter(_.length > 0).distinct
+        (titol, refsNets)
+      case _ => ("", List())
+  }
+
+  // variables inicials
   val configuracions = List(1, 4, 10, 20)
   val documentsDir = "assets/viquipedia/documents"
-  val exampleFilename = documentsDir + "/32509.xml"
 
-  val llistaFitxers: List[(String, List[String])] = ProcessListStrings.getListOfFiles(documentsDir).map(f => (f.getName, List(f.getAbsolutePath)))
+  // llegint tots els fitxers i generem una llista de tuples de titol de cada pàgina i les seves referències netes
+  val llistaFitxers: List[(String, List[String])] = ProcessListStrings.getListOfFiles(documentsDir).map(f => generarLlistaFitxersRefs(f.getAbsolutePath))
 
+  // Pas 1
   for (i <- configuracions) {
     val (resultat, temps) = timeMeasurement(MR(llistaFitxers, MRFunctions.mappingMitjanaRefs, MRFunctions.reducingGetMitjanaRefs, i, 1))
     println(s"================== Prova amb $i actors ==================")
-    println(s"El resultat és: $resultat")
+    //println(s"El resultat és: $resultat")
     println(s"Ha trigat $temps segons")
   }
 }
+/*
+* • Punt 2 (Filtre textual i PageRank per Query):
+	• Has de demanar la query a l'usuari per consola (readLine()).
+	• Has de netejar la query de stop-words (com de, la, els).
+	• Has d'utilitzar un segon MapReduce (complint el Punt 8) sobre la teva llista carregada en memòria per filtrar i quedar-te només amb les pàgines que continguin tots els mots de la query.
+	• Has de programar l'algorisme PageRank iteratiu de punt fix (fins a 5 iteracions o convergència) per ordenar aquest subgraf.
+• Punt 3 (Càlcul de similitud TF-IDF i anomalies estructural):
+	• Agafant com a molt les 100 pàgines amb millor PageRank del pas anterior, has de calcular els vectors TF-IDF de cadascuna (filtrant enllaços i stop-words dins del tag <text>).
+	• Has d'aplicar la Similitud Cosinus entre elles per parelles.
+	• Has de llistar aquelles que tinguin una similitud > 0.5 però que no es referencien mútuament (anomalies).
+• Punt 8 (Ús generalitzat de MapReduce): S'anirà completant a mesura que utilitzis el framework d'actors per al filtratge textual i per al càlcul de les freqüències de paraules del TF-IDF.
+* */
