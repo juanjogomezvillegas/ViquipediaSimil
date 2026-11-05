@@ -6,12 +6,13 @@ import scala.concurrent.Await
 import scala.concurrent.duration.*
 import scala.language.postfixOps
 import akka.actor.{Actor, ActorRef, ActorSystem, PoisonPill, Props}
-import mapreduce.{MapReduce, *}
-import utils.ProcessListStrings
-import utils.ViquipediaParse
-
 import akka.pattern.ask
 import akka.util.Timeout
+import mapreduce.*
+import utils.ProcessListStrings
+import utils.ViquipediaParse
+import simil.Simil
+
 
 // Altres classes i objectes
 
@@ -165,22 +166,68 @@ def MR[K1, V1, K2, V2, V3](input: List[(K1, List[V1])],
   }
 }
 
-object MRFunctions {
-  // Funcions mapping i reducing
-  def mappingMitjanaRefs(titol: String, refs: List[String]): List[(String, (Int, Int))] = {
-    List((titol, (refs.length, 1)))
-  }
-  def reducingGetMitjanaRefs(titol: String, totalRefsAndPagines: List[(Int, Int)]): (String, Double) = {
-    val totalRefs = totalRefsAndPagines.map(_._1).sum
-    val totalPagines = totalRefsAndPagines.map(_._2).sum
-    (titol, totalRefs.toDouble / totalPagines)
+
+object Utilitats {
+  // donat una llista de referències/links, retorna la mateixa llista amb els links nets
+  def netejarRefs(titol: String, refs: List[String]): List[String] = {
+    val auxRefsNets = refs.map(raw =>
+      val net = raw.stripPrefix("[[").stripSuffix("]]")
+      val partEsq = net.split("\\|").headOption.getOrElse("").trim
+      val destiFinal = partEsq.split("#").headOption.getOrElse("").trim
+
+      if (destiFinal.length > 0 && destiFinal != titol.trim) destiFinal else "" // eliminem autoenllaços i enllaços interns
+    )
+    val refsNets = auxRefsNets.filter(_.length > 0).distinct
+    refsNets
   }
 
-  /*
-  * Punt 1 (Mitjana de referències): El tens a un 95%. El teu MapReduce ja genera la llista de totes les pàgines amb els
-  * seus enllaços sortints calculats de manera impecable. Per tancar-lo del tot, només et falta sumar tots els valors d'aquest
-  * mapa i dividir-los pel nombre total d'elements per obtenir l'únic número de la mitjana global, tal com hem comentat ara mateix.
-  * */
+  def extreureStopwords(llistaRaw: List[String], fitxerStopwords: String = "assets/viquipedia/stopwords/stopwordscatalanet.txt"): List[String] = {
+    val stopwords = Simil.normalitzar(ProcessListStrings.llegirFitxer(fitxerStopwords))
+    val llistaSenseStopwords = llistaRaw.filterNot(stopwords `contains` _)
+    llistaSenseStopwords
+  }
+
+  // donat el contingut d'un document, retorna una llista amb les paraules, que no són stop-words, del contingut
+  def normalitzarContingut(contingut: String): List[String] = {
+    extreureStopwords(contingut.toLowerCase.replaceAll("[^a-záéíóúàèòïüçñ·\\s]", "").split("\\s+").filter(_.nonEmpty).toList)
+  }
+}
+
+object MRFunctions {
+  // Funcions mapping i reducing  (String, (List[String], List[String]))
+  def mappingMitjanaRefs(document: String, llistaBuida: List[String]): List[(String, (Int, Int))] = {
+    val res = ViquipediaParse.parseViquipediaFile(document)
+    res match
+      case ViquipediaParse.ResultViquipediaParsing(titol, _, refs) =>
+        val refsNets = Utilitats.netejarRefs(titol, refs)
+
+        List(("mitjana_total_refs", (refsNets.length, 1)))
+      case _ => List(("", (0, 0)))
+  }
+  def reducingMitjanaRefs(titol: String, totalRefsAndTotalPagines: List[(Int, Int)]): (String, Double) = {
+    val totalRefs = totalRefsAndTotalPagines.map(_._1).sum
+    val totalPagines = totalRefsAndTotalPagines.map(_._2).sum
+
+    val mitjana = if (totalPagines > 0) then totalRefs.toDouble / totalPagines else 0.0
+
+    (titol, mitjana)
+  }
+  def mappingCercaDocuments(document: String, query: List[String]): List[String, List[String]] = {
+    val res = ViquipediaParse.parseViquipediaFile(document)
+    res match
+      case ViquipediaParse.ResultViquipediaParsing(titol, cos, refs) =>
+        val refsNets = Utilitats.netejarRefs(titol, refs)
+        val wordsCosNet = Utilitats.normalitzarContingut(cos)
+
+        if (titol `contains` query) || (refsNets `contains` query) || (wordsCosNet `contains` query) then
+          List((titol.filter(query), refsNets.filter(query)))
+        else
+          List(("", List()))
+      case _ => List(("", List()))
+  }
+  def reducingCercaDocuments(titol: String, refs: List[String]): List[String, List[String]] = {
+    //
+  }
 }
 
 object Viqui extends App {
@@ -195,37 +242,47 @@ object Viqui extends App {
     (retorn, (t1 - t0).toDouble / 1000)
   }
 
-  def generarLlistaFitxersRefs(fitxer: String): (String, List[String]) = {
+  def generarLlistaFitxersRefs(fitxer: String): (String, (List[String], List[String])) = {
     val res = ViquipediaParse.parseViquipediaFile(fitxer)
     res match
-      case ViquipediaParse.ResultViquipediaParsing(titol, _, refs) =>
+      case ViquipediaParse.ResultViquipediaParsing(titol, cos, refs) =>
         // Netegem els links de manera eficient un sol cop
-        val auxRefsNets = refs.map(raw =>
-          val net = raw.stripPrefix("[[").stripSuffix("]]")
-          val partEsq = net.split("\\|").headOption.getOrElse("").trim
-          val destiFinal = partEsq.split("#").headOption.getOrElse("").trim
+        val refsNets = Utilitats.netejarRefs(titol, refs)
 
-          if (destiFinal.length > 0 && destiFinal != titol.trim) destiFinal else "" // eliminem autoenllaços i enllaços interns
-        )
-        val refsNets = auxRefsNets.filter(_.length > 0).distinct
-        (titol, refsNets)
-      case _ => ("", List())
+        // Netejem el cos
+        val cosSenseRefs = cos.replace("[[", " ").replace("]]", " ").replace("|", " ").trim
+        val cosNet = cosSenseRefs.toLowerCase.replaceAll("[^a-záéíóúàèòïüçñ·\\s]", "").split("\\s+").filter(_.nonEmpty).toList
+
+        (titol, (refsNets, cosNet))
+      case _ => ("", (List(), List()))
   }
 
   // variables inicials
   val configuracions = List(1, 4, 10, 20)
   val documentsDir = "assets/viquipedia/documents"
 
-  // llegint tots els fitxers i generem una llista de tuples de titol de cada pàgina i les seves referències netes
-  val llistaFitxers: List[(String, List[String])] = ProcessListStrings.getListOfFiles(documentsDir).map(f => generarLlistaFitxersRefs(f.getAbsolutePath))
+  val llistaDocuments = ProcessListStrings.getListOfFiles(documentsDir).map(f => (f.getAbsolutePath, List()))
 
-  // Pas 1
+  // calcul del nombre mitjà de referències que tenen totes les pàgines
   for (i <- configuracions) {
-    val (resultat, temps) = timeMeasurement(MR(llistaFitxers, MRFunctions.mappingMitjanaRefs, MRFunctions.reducingGetMitjanaRefs, i, 1))
+    val (resultat, temps) = timeMeasurement(MR(llistaDocuments, MRFunctions.mappingMitjanaRefs, MRFunctions.reducingMitjanaRefs, i, i))
     println(s"================== Prova amb $i actors ==================")
-    //println(s"El resultat és: $resultat")
+    println(s"La mitjana de referències per pàgina és: $resultat")
     println(s"Ha trigat $temps segons")
   }
+
+  // donada una query, fer una recomanació fent ús de l’algoritme Page-Rank
+  val query = "la segona guerra mundial"
+
+  val normalQuery = Simil.normalitzar(query)
+  val normalFilteredQuery = Utilitats.extreureStopwords(normalQuery)
+
+  println(llistaDocuments.map((_, normalFilteredQuery)))
+/*
+  // detectar les pàgines que s’assemblen més, però no es referencien mútuament
+
+  println(generarLlistaFitxersRefs(documentsDir + "/22.xml"))
+*/
 }
 /*
 * • Punt 2 (Filtre textual i PageRank per Query):

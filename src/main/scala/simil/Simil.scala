@@ -151,6 +151,7 @@ object Simil extends App {
 
   // Fi de funcions
 
+  /*
   // Fixem els dos fitxes per fer proves
   val documentsDir = "assets/simil/documents"
   val fitxer1 = documentsDir + "/pg11.txt"
@@ -195,4 +196,5 @@ object Simil extends App {
   for llibre1 <- llibres; llibre2 <- llibres yield
     val sim = cosinesim(ProcessListStrings.llegirFitxer(llibre1.toString), ProcessListStrings.llegirFitxer(llibre2.toString), listStopWords.toList)
     println(s"${llibre1.toString.substring(23)}\t${llibre2.toString.substring(23)}\t${String.format("%.4f", sim).replace(".", ",")}")
+*/
 }
