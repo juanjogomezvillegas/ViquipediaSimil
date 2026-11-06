@@ -212,21 +212,22 @@ object MRFunctions {
 
     (titol, mitjana)
   }
-  def mappingCercaDocuments(document: String, query: List[String]): List[String, List[String]] = {
+
+  def mappingCercaDocuments(document: String, query: List[String]): List[(String, (List[String], List[String]))] = {
     val res = ViquipediaParse.parseViquipediaFile(document)
     res match
       case ViquipediaParse.ResultViquipediaParsing(titol, cos, refs) =>
         val refsNets = Utilitats.netejarRefs(titol, refs)
         val wordsCosNet = Utilitats.normalitzarContingut(cos)
 
-        if (titol `contains` query) || (refsNets `contains` query) || (wordsCosNet `contains` query) then
-          List((titol.filter(query), refsNets.filter(query)))
+        if query.forall(word => (titol `contains` word) || (refsNets `contains` word) || (wordsCosNet `contains` word)) then
+          List((titol, (refsNets, wordsCosNet)))
         else
-          List(("", List()))
-      case _ => List(("", List()))
+          Nil
+      case _ => Nil
   }
-  def reducingCercaDocuments(titol: String, refs: List[String]): List[String, List[String]] = {
-    //
+  def reducingCercaDocuments(titol: String, refsAndCos: List[(List[String], List[String])]): (String, (List[String], List[String])) = {
+    (titol, refsAndCos.head)
   }
 }
 
@@ -264,20 +265,22 @@ object Viqui extends App {
   val llistaDocuments = ProcessListStrings.getListOfFiles(documentsDir).map(f => (f.getAbsolutePath, List()))
 
   // calcul del nombre mitjà de referències que tenen totes les pàgines
-  for (i <- configuracions) {
+  /*for (i <- configuracions) {
     val (resultat, temps) = timeMeasurement(MR(llistaDocuments, MRFunctions.mappingMitjanaRefs, MRFunctions.reducingMitjanaRefs, i, i))
     println(s"================== Prova amb $i actors ==================")
     println(s"La mitjana de referències per pàgina és: $resultat")
     println(s"Ha trigat $temps segons")
-  }
+  }*/
 
   // donada una query, fer una recomanació fent ús de l’algoritme Page-Rank
-  val query = "la segona guerra mundial"
+  val query = "Segona Guerra Mundial"
 
   val normalQuery = Simil.normalitzar(query)
   val normalFilteredQuery = Utilitats.extreureStopwords(normalQuery)
 
-  println(llistaDocuments.map((_, normalFilteredQuery)))
+  val (resultat2, temps2) = timeMeasurement(MR(llistaDocuments.map(f => (f._1, normalFilteredQuery)), MRFunctions.mappingCercaDocuments, MRFunctions.reducingCercaDocuments, 20, 20))
+
+  println(resultat2.map(f => f._1).toList)
 /*
   // detectar les pàgines que s’assemblen més, però no es referencien mútuament
 
