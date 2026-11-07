@@ -243,6 +243,69 @@ object Viqui extends App {
     (retorn, (t1 - t0).toDouble / 1000)
   }
 
+  // donat un document D i una llista de documents, retorna els documents als quals enllaça D
+  def kappa(d: String, docs: List[(String, (List[String], List[String]))]): List[String] = {
+    docs.filter(_._1 == d).map((_, x) => x._1).head
+  }
+
+  // donat un document D i una llista de documents, retorna els documents que enllacen amb D
+  def delta(d: String, docs: List[(String, (List[String], List[String]))]): List[String] = {
+    docs.filter(_._2._1 `contains` d).map(_._1)
+  }
+
+  def calculPRInicial(docs: List[(String, (List[String], List[String]))]): List[(String, Double)] = {
+    val initPR = 1.0 / docs.length
+    for (i <- docs) yield (i._1, initPR)
+  }
+
+  def calculPRSeguent(docs: List[(String, (List[String], List[String]))], prAnt: List[(String, Double)]): List[(String, Double)] = {
+    val N = docs.length.toDouble
+    val mapPR = prAnt.toMap
+
+    // definim el factor de frenada gamma
+    val gamma = 0.85
+
+    val saltAleatoriExt = (1.0 - gamma) / N
+
+    // calculem la segona part de la formula per calcular el seguent, amb els documents que no enllacen amb ningu
+    val docsSenseLinks = docs.filter(x => kappa(x._1, docs).isEmpty)
+    val sumaDocsSenseLinks = docsSenseLinks.map(x => mapPR(x._1)).sum
+    val sumatori1 = (1.0 / N) * sumaDocsSenseLinks
+
+    // iterem per calcular la primera part amb cada document i els documents enllacen a ell, i unificar amb la segona part
+    for (i <- docs) yield
+      // calculem la primera part del sumatori
+      val docsAmbLinks = delta(i._1, docs).filter(x => kappa(x, docs).nonEmpty)
+      val sumaDocsAmbLinks = docsAmbLinks.map(x => mapPR(x) / kappa(x, docs).length.toDouble).sum
+
+      // ajuntem les dues parts de la formula, afegint el factor de frenada gamma
+      val nouPR = saltAleatoriExt + gamma * (sumaDocsAmbLinks + sumatori1)
+
+      (i._1, nouPR)
+  }
+
+  def calculPR(docs: List[(String, (List[String], List[String]))]): List[(String, Double)] = {
+    def bucleCalculPR(t: Int, PRAct: List[(String, Double)]): List[(String, Double)] = {
+      val PRSeg = calculPRSeguent(docs, PRAct)
+
+      val mapAct = PRAct.toMap
+      val mapSeg = PRSeg.toMap
+      val diffTotal = docs.map(x => Math.abs(mapSeg(x._1) - mapAct(x._1))).sum
+
+      val maxIter = t >= 5
+      val convergit = diffTotal <= 1e-3
+
+      (maxIter, convergit) match {
+        case (true, _) => PRSeg
+        case (false, true) => PRSeg
+        case (false, false) => bucleCalculPR(t + 1, PRSeg)
+      }
+    }
+
+    val PRIni = calculPRInicial(docs)
+    bucleCalculPR(1, PRIni)
+  }
+
   def generarLlistaFitxersRefs(fitxer: String): (String, (List[String], List[String])) = {
     val res = ViquipediaParse.parseViquipediaFile(fitxer)
     res match
@@ -259,18 +322,16 @@ object Viqui extends App {
   }
 
   // variables inicials
-  val configuracions = List(1, 4, 10, 20)
+  val configuracio = 20 // List(1, 4, 10, 20)
   val documentsDir = "assets/viquipedia/documents"
 
   val llistaDocuments = ProcessListStrings.getListOfFiles(documentsDir).map(f => (f.getAbsolutePath, List()))
 
   // calcul del nombre mitjà de referències que tenen totes les pàgines
-  /*for (i <- configuracions) {
-    val (resultat, temps) = timeMeasurement(MR(llistaDocuments, MRFunctions.mappingMitjanaRefs, MRFunctions.reducingMitjanaRefs, i, i))
-    println(s"================== Prova amb $i actors ==================")
-    println(s"La mitjana de referències per pàgina és: $resultat")
-    println(s"Ha trigat $temps segons")
-  }*/
+  val (resultat, temps) = timeMeasurement(MR(llistaDocuments, MRFunctions.mappingMitjanaRefs, MRFunctions.reducingMitjanaRefs, configuracio, configuracio))
+  println(s"================== Prova amb $configuracio actors ==================")
+  println(s"La mitjana de referències per pàgina és: $resultat")
+  println(s"Ha trigat $temps segons")
 
   // donada una query, fer una recomanació fent ús de l’algoritme Page-Rank
   val query = "Segona Guerra Mundial"
@@ -278,14 +339,17 @@ object Viqui extends App {
   val normalQuery = Simil.normalitzar(query)
   val normalFilteredQuery = Utilitats.extreureStopwords(normalQuery)
 
-  val (resultat2, temps2) = timeMeasurement(MR(llistaDocuments.map(f => (f._1, normalFilteredQuery)), MRFunctions.mappingCercaDocuments, MRFunctions.reducingCercaDocuments, 20, 20))
+  val (resultat2, temps2) = timeMeasurement(MR(llistaDocuments.map(f => (f._1, normalFilteredQuery)), MRFunctions.mappingCercaDocuments, MRFunctions.reducingCercaDocuments, configuracio, configuracio))
 
-  println(resultat2.map(f => f._1).toList)
-/*
+  val (rankingFinal, temps3) = timeMeasurement(calculPR(resultat2.toList).sortBy(-_._2))
+
+  println(s"Temps: $temps3 segons")
+  println("\n================ TOP 10 PÀGINES RECOMANADES ================")
+  rankingFinal.take(100).foreach { case (titol, score) =>
+    println(s"- Pàgina: $titol | Score PR: $score")
+  }
+
   // detectar les pàgines que s’assemblen més, però no es referencien mútuament
-
-  println(generarLlistaFitxersRefs(documentsDir + "/22.xml"))
-*/
 }
 /*
 * • Punt 2 (Filtre textual i PageRank per Query):
