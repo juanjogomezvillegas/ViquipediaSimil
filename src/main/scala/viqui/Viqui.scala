@@ -168,6 +168,10 @@ def MR[K1, V1, K2, V2, V3](input: List[(K1, List[V1])],
 
 
 object Utilitats {
+  val STOP_WORDS: List[String] = {
+    Simil.normalitzar(ProcessListStrings.llegirFitxer("assets/viquipedia/stopwords/stopwordscatalanet.txt"))
+  }
+
   // donat una llista de referències/links, retorna la mateixa llista amb els links nets
   def netejarRefs(titol: String, refs: List[String]): List[String] = {
     val auxRefsNets = refs.map(raw =>
@@ -182,8 +186,7 @@ object Utilitats {
   }
 
   def extreureStopwords(llistaRaw: List[String], fitxerStopwords: String = "assets/viquipedia/stopwords/stopwordscatalanet.txt"): List[String] = {
-    val stopwords = Simil.normalitzar(ProcessListStrings.llegirFitxer(fitxerStopwords))
-    val llistaSenseStopwords = llistaRaw.filterNot(stopwords `contains` _)
+    val llistaSenseStopwords = llistaRaw.filterNot(STOP_WORDS `contains` _)
     llistaSenseStopwords
   }
 
@@ -228,6 +231,24 @@ object MRFunctions {
   }
   def reducingCercaDocuments(titol: String, refsAndCos: List[(List[String], List[String])]): (String, (List[String], List[String])) = {
     (titol, refsAndCos.head)
+  }
+
+  /*def mappingPRSeguent(titol: String, refsAndPR: List[(List[String], Double)]): List[(String, Double)] = {
+    val (links, prAnt) = refsAndPR.head
+
+    if (links.nonEmpty) then List((titol, prAnt / links.length.toDouble)) else List((titol, prAnt / links.length))
+  }
+  def reducingPRSeguent(titol: String, sumatoris: List[(Double, Double)]): (String, Double) = {
+    val gamma = 0.85
+    //val saltAleatoriExt = (1.0 - gamma) / sumatoris.length
+  }*/
+
+  def mappingSimilitudDocuments(titol: String, refsAndCos: List[(List[String], List[String])]): List[(String, Int)] = {
+    val cos = refsAndCos.head._2
+    Simil.llistaFreqs(cos)
+  }
+  def reducingSimilitudDocuments(paraules: String, comptadors: List[Int]): (String, Int) = {
+    (paraules, comptadors.length) // retorna per cada paraula, en quants documents apareix
   }
 }
 
@@ -286,6 +307,9 @@ object Viqui extends App {
 
   def calculPR(docs: List[(String, (List[String], List[String]))]): List[(String, Double)] = {
     def bucleCalculPR(t: Int, PRAct: List[(String, Double)]): List[(String, Double)] = {
+      val auxMapPRAct = PRAct.toMap
+      docs.map(x => (x._1, (x._2._1, auxMapPRAct(x._1))))
+
       val PRSeg = calculPRSeguent(docs, PRAct)
 
       val mapAct = PRAct.toMap
@@ -341,15 +365,31 @@ object Viqui extends App {
 
   val (resultat2, temps2) = timeMeasurement(MR(llistaDocuments.map(f => (f._1, normalFilteredQuery)), MRFunctions.mappingCercaDocuments, MRFunctions.reducingCercaDocuments, configuracio, configuracio))
 
-  val (rankingFinal, temps3) = timeMeasurement(calculPR(resultat2.toList).sortBy(-_._2))
+  val (resultat3, temps3) = timeMeasurement(calculPR(resultat2.toList).sortBy(-_._2))
 
   println(s"Temps: $temps3 segons")
   println("\n================ TOP 10 PÀGINES RECOMANADES ================")
-  rankingFinal.take(100).foreach { case (titol, score) =>
-    println(s"- Pàgina: $titol | Score PR: $score")
-  }
+  val rankingTop100 = resultat3.take(100)
+  for (i <- rankingTop100) yield println(s"Pàgina ${i._1}. PageRank ${i._2}")
 
   // detectar les pàgines que s’assemblen més, però no es referencien mútuament
+  val top100Docs = llistaDocuments.filter(x => rankingTop100.contains(x._1))
+
+  val (resultat4, temps4) = timeMeasurement(MR(top100Docs, MRFunctions.mappingSimilitudDocuments, MRFunctions.reducingSimilitudDocuments, configuracio, configuracio))
+
+  println(resultat4)
+
+
+  /*
+  top100Docs.map((titol, (refs, cos)) =>
+    val tfLocal = Simil.llistaFreqs(cos).toMap
+
+    val pesosTFIDF = tfLocal.map ((paraula, count) =>
+      val idf = Math.log(N / resultat4.getOrElse(paraula, 1).toDouble)
+      paraula -> (count.toDouble * idf))
+
+    (titol, pesosTFIDF)
+    )*/
 }
 /*
 * • Punt 2 (Filtre textual i PageRank per Query):
