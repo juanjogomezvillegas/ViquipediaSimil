@@ -172,6 +172,11 @@ object Utilitats {
     Simil.normalitzar(ProcessListStrings.llegirFitxer("assets/viquipedia/stopwords/stopwordscatalanet.txt"))
   }
 
+  // donada una llista qualsevol, retorna una llista amb cada valor de la llista original agrupat en parelles tots amb tots
+  def crearParelles[A](llista: List[A]): List[(A, A)] = {
+    llista.foldLeft((llista, List.empty[(A, A)]))((acum, el) => (acum._1.tail, acum._2 ::: acum._1.tail.map(y => (el, y))))._2
+  }
+
   // donat una llista de referències/links, retorna la mateixa llista amb els links nets
   def netejarRefs(titol: String, refs: List[String]): List[String] = {
     val auxRefsNets = refs.map(raw =>
@@ -193,6 +198,26 @@ object Utilitats {
   // donat el contingut d'un document, retorna una llista amb les paraules, que no són stop-words, del contingut
   def normalitzarContingut(contingut: String): List[String] = {
     extreureStopwords(contingut.toLowerCase.replaceAll("[^a-záéíóúàèòïüçñ·\\s]", "").split("\\s+").filter(_.nonEmpty).toList)
+  }
+
+  // donats dos Llistes de tuples (String, Double) ens dona el seu coeficient de similitud de cosinus, un valor entre 0 (menys similar) i 1 (més similar)
+  def cosinesimV2(listFitxer1: List[(String, Double)], listFitxer2: List[(String, Double)]): Double = {
+    // Segon pas, les dues llistes han d'estar alienades. Per tant, ajuntem totes les paraules i pesos de tots dos llibres i eliminem els repetits amb distinct
+    val listAllWords = (listFitxer1.map(x => x._1) ++ listFitxer2.map(x => x._1)).distinct
+    val mapOfPesFitx1 = listFitxer1.toMap // Convertim les llistes de pesos a Map per poder fer servir la funció getOrElse
+    val mapOfPesFitx2 = listFitxer2.toMap
+
+    // Amb la llista de totes les paraules i pesos, generem els vectors a i b per fer el calcul
+    val a = listAllWords.map(x => mapOfPesFitx1.getOrElse(x, 0.0)) // Si la paraula x hi és al llibre 1, el pes sera el pes calculat, altrament sera 0.0
+    val b = listAllWords.map(x => mapOfPesFitx2.getOrElse(x, 0.0)) // El mateix pel llibre 2
+
+    // Tercer pas, copiar/adaptar la formula de l'enunciat de la practica
+    val numerador = a.zip(b).map((x, y) => x * y).sum // calcul del numerador
+    val demEsq = Math.sqrt(a.map(x => x * x).sum) // calcul de la part esquerra del denominador
+    val demDre = Math.sqrt(b.map(x => x * x).sum) // calcul de la part dreta del denominador
+
+    // Retornar 0.0, en cas que el denomiandor sigui 0, ja que no es pot dividir per 0; si no es 0, llavors es fa el calcul
+    if (demEsq * demDre) == 0 then 0.0 else numerador / (demEsq * demDre)
   }
 }
 
@@ -257,12 +282,29 @@ object MRFunctions {
     (titol, nouPR)
   }
 
-  def mappingSimilitudDocuments(titol: String, refsAndCos: List[(List[String], List[String])]): List[(String, Int)] = {
+  def mappingSimilitudDocuments(titol: String, refsAndCos: List[(List[String], List[String])]): List[(String, (String, Int))] = {
     val cos = refsAndCos.head._2
-    Simil.llistaFreqs(cos)
+    val freqs = Simil.llistaFreqs(cos)
+
+    freqs.map((paraula, freq) => (paraula, (titol, freq)))
   }
-  def reducingSimilitudDocuments(paraules: String, comptadors: List[Int]): (String, Int) = {
-    (paraules, comptadors.length) // retorna per cada paraula, en quants documents apareix
+  def reducingSimilitudDocuments(paraula: String, dades: List[(String, Int)]): (String, (Int, List[(String, Int)])) = {
+    val numDocs = dades.length
+
+    (paraula, (numDocs, dades)) // retorna per cada paraula, en quants documents apareix i la llista dels documents i vegades que apareix en aquest document
+  }
+
+  def mappingCalculSimilitudCosinus(fitxer: (String, String), parella: List[(String, List[(String, Double)], String, List[(String, Double)])]): List[((String, String), (List[(String, Double)], List[(String, Double)]))] = {
+    val (_, parellaA, _, parellaB) = parella.head
+
+    List((fitxer, (parellaA, parellaB)))
+  }
+  def reducingCalculSimilitudCosinus(parella: (String, String), llistaParaulesPesos: List[(List[(String, Double)], List[(String, Double)])]): ((String, String), Double) = {
+    val (parellaA, parellaB) = llistaParaulesPesos.head
+
+    val sim = Utilitats.cosinesimV2(parellaA, parellaB)
+
+    (parella, sim)
   }
 }
 
@@ -392,25 +434,33 @@ object Viqui extends App {
 
   val (resultat4, temps4) = timeMeasurement(MR(top100Docs, MRFunctions.mappingSimilitudDocuments, MRFunctions.reducingSimilitudDocuments, configuracio, configuracio))
 
-  println(resultat4)
+  val resultat5 = for (i <- resultat4) yield (i._1, Math.log(top100Docs.length / i._2._1))
+  val mapRes5 = resultat5.toMap
 
-  // • Pas 1: Calcular el vector tf_idf de cada un dels 100 documents.
-  //Per a cada document de top100Docs, agafes la llista de paraules del seu cos, comptes quantes vegades surt cada paraula (tf) i ho multipliques per Math.log(N / df) (on N és top100Docs.length).
-  //• Pas 2: Adaptar la teva funció cosinesim.
-  //Com que ja tens les llistes de pesos (paraula, tf_idf) calculades al Pas 1, fas una còpia de la teva funció cosinesim que rebi directament aquestes dues llistes de pesos List[(String, Double)] (saltant-te el primer pas on llegies fitxers i calculaves freqToPes).
-  //• Pas 3: Creuar parelles i filtrar.
+  var tfIdFinal = for (i <- resultat4; idf = mapRes5(i._1); j <- i._2._2) yield
+    val pes = j._2 * idf
+    (j._1, i._1, pes)
 
-  // Amb .combinations(2) (La més curta i funcional):
-  //Scala ja porta un mètode natiu per a llistes que genera totes les parelles úniques possibles sense repeticions ((A, B) però no (B, A) ni (A, A)):
+  val resultat6 = tfIdFinal.groupBy(_._1).map(x => (x._1, x._2.map(y => (y._2, y._3)))).toList
 
-  /*
-  top100Docs.map((titol, (refs, cos)) =>
-    val tfLocal = Simil.llistaFreqs(cos).toMap
+  val mapRes6 = resultat6.toMap
+  val mapNomsDocsRes6 = mapRes6.keys.toList
+  val parellesNoms = Utilitats.crearParelles(mapNomsDocsRes6)
 
-    val pesosTFIDF = tfLocal.map ((paraula, count) =>
-      val idf = Math.log(N / resultat4.getOrElse(paraula, 1).toDouble)
-      paraula -> (count.toDouble * idf))
+  val inputMR = parellesNoms.map(x =>
+    val titol1 = x._1
+    val titol2 = x._2
 
-    (titol, pesosTFIDF)
-    )*/
+    val parellaA = mapRes6(titol1).toList
+    val parellaB = mapRes6(titol2).toList
+
+    ((titol1, titol2), List((titol1, parellaA, titol2, parellaB)))
+  )
+
+  val (resultat7, temps7) = timeMeasurement(MR(inputMR, MRFunctions.mappingCalculSimilitudCosinus, MRFunctions.reducingCalculSimilitudCosinus, configuracio, configuracio))
+  val rankingPaginesMesSimilars = resultat7.filter(_._2 > 0.5)
+
+  println(s"Temps: $temps7 segons")
+  println("\n================ PARELLES DE PÀGINES MÉS SIMILARS ================")
+  for (i <- rankingPaginesMesSimilars) yield println(s"Pàgines ${i._1._1} i ${i._1._2}. Similitud ${i._2}")
 }
