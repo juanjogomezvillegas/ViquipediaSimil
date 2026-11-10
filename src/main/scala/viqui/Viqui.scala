@@ -233,15 +233,29 @@ object MRFunctions {
     (titol, refsAndCos.head)
   }
 
-  /*def mappingPRSeguent(titol: String, refsAndPR: List[(List[String], Double)]): List[(String, Double)] = {
-    val (links, prAnt) = refsAndPR.head
+  def mappingPRSeguent(titol: String, dades: List[(List[String], Double, Int, Double)]): List[(String, (Double, Int, Double))] = {
+    val (links, prAnt, nDocs, sumaDocsSenseLinks) = dades.head
 
-    if (links.nonEmpty) then List((titol, prAnt / links.length.toDouble)) else List((titol, prAnt / links.length))
+    val cua = if links.nonEmpty then
+      val pes = prAnt / links.length.toDouble // el PageRank anterior / kappa(document actual amb titol == titol)
+      links.map(x => (x, (pes, nDocs, sumaDocsSenseLinks)))
+    else
+      Nil
+
+    List((titol, (0.0, nDocs, sumaDocsSenseLinks))) ::: cua
   }
-  def reducingPRSeguent(titol: String, sumatoris: List[(Double, Double)]): (String, Double) = {
+  def reducingPRSeguent(titol: String, dades: List[(Double, Int, Double)]): (String, Double) = {
     val gamma = 0.85
-    //val saltAleatoriExt = (1.0 - gamma) / sumatoris.length
-  }*/
+    val (_, nDocs, sumaDocsSenseLinks) = dades.head
+    val N = nDocs.toDouble
+
+    val sumaDocsAmbLinks = dades.map(_._1).sum
+    val saltAleatoriExt = (1.0 - gamma) / N
+    val sumatori1 = (1.0 / N) * sumaDocsSenseLinks
+
+    val nouPR = saltAleatoriExt + gamma * (sumaDocsAmbLinks + sumatori1)
+    (titol, nouPR)
+  }
 
   def mappingSimilitudDocuments(titol: String, refsAndCos: List[(List[String], List[String])]): List[(String, Int)] = {
     val cos = refsAndCos.head._2
@@ -282,22 +296,22 @@ object Viqui extends App {
   def calculPRSeguent(docs: List[(String, (List[String], List[String]))], prAnt: List[(String, Double)]): List[(String, Double)] = {
     val N = docs.length.toDouble
     val mapPR = prAnt.toMap
-
-    // definim el factor de frenada gamma
-    val gamma = 0.85
-
+    val gamma = 0.85 // definim el factor de frenada gamma
     val saltAleatoriExt = (1.0 - gamma) / N
 
+    val midaKappa = docs.map(x => (x._1, x._2._1.length)).toMap
+    val docsAmbSet = docs.map(x => (x._1, x._2._1.toSet)) // convertim la llista de links a un conjunt de links perquè vagi més ràpid
+
     // calculem la segona part de la formula per calcular el seguent, amb els documents que no enllacen amb ningu
-    val docsSenseLinks = docs.filter(x => kappa(x._1, docs).isEmpty)
+    val docsSenseLinks = docs.filter(x => midaKappa(x._1) == 0)
     val sumaDocsSenseLinks = docsSenseLinks.map(x => mapPR(x._1)).sum
     val sumatori1 = (1.0 / N) * sumaDocsSenseLinks
 
     // iterem per calcular la primera part amb cada document i els documents enllacen a ell, i unificar amb la segona part
     for (i <- docs) yield
       // calculem la primera part del sumatori
-      val docsAmbLinks = delta(i._1, docs).filter(x => kappa(x, docs).nonEmpty)
-      val sumaDocsAmbLinks = docsAmbLinks.map(x => mapPR(x) / kappa(x, docs).length.toDouble).sum
+      val docsAmbLinks = docsAmbSet.filter(_._2 `contains` i._1).map(_._1).filter(x => midaKappa(x) > 0)
+      val sumaDocsAmbLinks = docsAmbLinks.map(x => mapPR(x) / midaKappa(x).toDouble).sum
 
       // ajuntem les dues parts de la formula, afegint el factor de frenada gamma
       val nouPR = saltAleatoriExt + gamma * (sumaDocsAmbLinks + sumatori1)
@@ -373,12 +387,21 @@ object Viqui extends App {
   for (i <- rankingTop100) yield println(s"Pàgina ${i._1}. PageRank ${i._2}")
 
   // detectar les pàgines que s’assemblen més, però no es referencien mútuament
-  val top100Docs = llistaDocuments.filter(x => rankingTop100.contains(x._1))
+  val titolsTop100 = rankingTop100.map(_._1).toSet
+  val top100Docs = resultat2.filter(x => titolsTop100 `contains` x._1).map(x => (x._1, List(x._2))).toList
 
   val (resultat4, temps4) = timeMeasurement(MR(top100Docs, MRFunctions.mappingSimilitudDocuments, MRFunctions.reducingSimilitudDocuments, configuracio, configuracio))
 
   println(resultat4)
 
+  // • Pas 1: Calcular el vector tf_idf de cada un dels 100 documents.
+  //Per a cada document de top100Docs, agafes la llista de paraules del seu cos, comptes quantes vegades surt cada paraula (tf) i ho multipliques per Math.log(N / df) (on N és top100Docs.length).
+  //• Pas 2: Adaptar la teva funció cosinesim.
+  //Com que ja tens les llistes de pesos (paraula, tf_idf) calculades al Pas 1, fas una còpia de la teva funció cosinesim que rebi directament aquestes dues llistes de pesos List[(String, Double)] (saltant-te el primer pas on llegies fitxers i calculaves freqToPes).
+  //• Pas 3: Creuar parelles i filtrar.
+
+  // Amb .combinations(2) (La més curta i funcional):
+  //Scala ja porta un mètode natiu per a llistes que genera totes les parelles úniques possibles sense repeticions ((A, B) però no (B, A) ni (A, A)):
 
   /*
   top100Docs.map((titol, (refs, cos)) =>
@@ -391,15 +414,3 @@ object Viqui extends App {
     (titol, pesosTFIDF)
     )*/
 }
-/*
-* • Punt 2 (Filtre textual i PageRank per Query):
-	• Has de demanar la query a l'usuari per consola (readLine()).
-	• Has de netejar la query de stop-words (com de, la, els).
-	• Has d'utilitzar un segon MapReduce (complint el Punt 8) sobre la teva llista carregada en memòria per filtrar i quedar-te només amb les pàgines que continguin tots els mots de la query.
-	• Has de programar l'algorisme PageRank iteratiu de punt fix (fins a 5 iteracions o convergència) per ordenar aquest subgraf.
-• Punt 3 (Càlcul de similitud TF-IDF i anomalies estructural):
-	• Agafant com a molt les 100 pàgines amb millor PageRank del pas anterior, has de calcular els vectors TF-IDF de cadascuna (filtrant enllaços i stop-words dins del tag <text>).
-	• Has d'aplicar la Similitud Cosinus entre elles per parelles.
-	• Has de llistar aquelles que tinguin una similitud > 0.5 però que no es referencien mútuament (anomalies).
-• Punt 8 (Ús generalitzat de MapReduce): S'anirà completant a mesura que utilitzis el framework d'actors per al filtratge textual i per al càlcul de les freqüències de paraules del TF-IDF.
-* */
