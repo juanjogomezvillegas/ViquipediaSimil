@@ -13,7 +13,7 @@ import utils.ViquipediaParse
 import simil.Simil
 
 
-// Altres classes i objectes
+// classe MapReduce i definició d'una funció MR que abstragui l'ús del MapReduce
 
 // L'Actor MapReduce és polimòrfic amb els tipus de les claus valor de l'entrada [K1,V1], la clau i valor intermitjos [k2,v2] i la clau i valor finals [K2,V3].
 // - input és el paràmetre d'entrada (compte perquè depedent de la mida pot ser un problema)
@@ -155,12 +155,22 @@ def MR[K1, V1, K2, V2, V3](input: List[(K1, List[V1])],
   }
 }
 
+// Altres objectes amb funcions útils
 
 object Utilitats {
-  // el següent bloc de codi s'avalua de forma immediata per estalviar temps d'execució
+  // el següent bloc de codi s'avalua només la primera vegada que es crida l'objecte, llavors a la pròxima vegada estarem estalviant temps d'execució
   // bàsicament, llegeix el fitxer amb les stop-words en català, obté una llista de String (de Stop-Words); la normalitza i la retorna
   val STOP_WORDS: List[String] = {
     Simil.normalitzar(ProcessListStrings.llegirFitxer("assets/viquipedia/stopwords/stopwordscatalanet.txt"))
+  }
+
+  // donat un bloc de codi de tipus genèric, retorna una tupla amb el retorn del codi i el temps (en segons) que ha trigat en executar-se
+  def timeMeasurement[A](block: => A): (A, Double) = {
+    val t0 = System.currentTimeMillis() // obté l'instant de temps en milisegons
+    val retorn = block // executa el bloc de codi
+    val t1 = System.currentTimeMillis() // obté l'instant de temps en milisegons
+
+    (retorn, (t1 - t0).toDouble / 1000)
   }
 
   // donada una llista qualsevol, retorna una llista amb totes les parelles de valors úniques possibles (tots amb tots sense repetició)
@@ -179,7 +189,6 @@ object Utilitats {
 
       if (destiFinal.length > 0 && destiFinal != titol.trim) destiFinal else "" // eliminem autoenllaços i enllaços interns
     )
-    //
     val refsNets = auxRefsNets.filter(_.length > 0).distinct // Eliminem cadenes buides i enllaços duplicats
     refsNets
   }
@@ -219,15 +228,19 @@ object Utilitats {
 
 object MRFunctions {
   // Funcions mapping i reducing  (String, (List[String], List[String]))
+
+  // 1. Mitjana de referències per pàgina
+  // donada la ruta d'un document, el parseja (analitza) i retorna una única clau qualsevol (igual per tots els documents) i una tupla amb el nombre de links nets i un document
   def mappingMitjanaRefs(document: String, llistaBuida: List[String]): List[(String, (Int, Int))] = {
-    val res = ViquipediaParse.parseViquipediaFile(document)
+    val res = ViquipediaParse.parseViquipediaFile(document) // parseja el document
     res match
       case ViquipediaParse.ResultViquipediaParsing(titol, _, refs) =>
-        val refsNets = Utilitats.netejarRefs(titol, refs)
+        val refsNets = Utilitats.netejarRefs(titol, refs) // neteja els links
 
         List(("mitjana_total_refs", (refsNets.length, 1)))
       case _ => List(("", (0, 0)))
   }
+  // suma tots els links de tots els documents i el total de documents, després calcula i retorna la mitjana global
   def reducingMitjanaRefs(titol: String, totalRefsAndTotalPagines: List[(Int, Int)]): (String, Double) = {
     val totalRefs = totalRefsAndTotalPagines.map(_._1).sum
     val totalPagines = totalRefsAndTotalPagines.map(_._2).sum
@@ -237,23 +250,29 @@ object MRFunctions {
     (titol, mitjana)
   }
 
+  // 2. Cerca documents per paraules clau dins d'una query (consulta)
+  // donat un document i una query (llista de paraules clau), filtra els documents que contenen totes les paraules de la query (al títol, als links o al cos)
   def mappingCercaDocuments(document: String, query: List[String]): List[(String, (List[String], List[String]))] = {
     val res = ViquipediaParse.parseViquipediaFile(document)
     res match
       case ViquipediaParse.ResultViquipediaParsing(titol, cos, refs) =>
-        val refsNets = Utilitats.netejarRefs(titol, refs)
-        val wordsCosNet = Utilitats.normalitzarContingut(cos)
+        val refsNets = Utilitats.netejarRefs(titol, refs) // neteja els links
+        val wordsCosNet = Utilitats.normalitzarContingut(cos) // neteja el cos
 
+        // comprova si totes les paraules de la query estan al títol o a la llista de links nets o a la llista de paraules del cos
         if query.forall(word => (titol `contains` word) || (refsNets `contains` word) || (wordsCosNet `contains` word)) then
           List((titol, (refsNets, wordsCosNet)))
         else
           Nil
       case _ => Nil
   }
+  // retorna el títol del document i una tupla amb la llista dels links nets i la llista de paraules del cos
   def reducingCercaDocuments(titol: String, refsAndCos: List[(List[String], List[String])]): (String, (List[String], List[String])) = {
     (titol, refsAndCos.head)
   }
 
+  // 3. Calcul del PageRank següent en cada iteració
+  // donat un document amb títol i una tupla amb una llista de links sortints (kappa), el PageRank anterior, el nombre de documents en total i el nombre de document que no tenen cap link de sortida
   def mappingPRSeguent(titol: String, dades: List[(List[String], Double, Int, Double)]): List[(String, (Double, Int, Double))] = {
     val (links, prAnt, nDocs, sumaDocsSenseLinks) = dades.head
 
@@ -263,38 +282,49 @@ object MRFunctions {
     else
       Nil
 
+    // retorna només una llista amb els documents que tenen almenys un enllaç de sortida
     List((titol, (0.0, nDocs, sumaDocsSenseLinks))) ::: cua
   }
+  // implementació de la fórmula completa del PageRank descrita a l'enunciat de la pràctica
   def reducingPRSeguent(titol: String, dades: List[(Double, Int, Double)]): (String, Double) = {
-    val gamma = 0.85
+    val gamma = 0.85 // probabilitat de seguir navegant fent clic a un enllaç
+    // recuperem les constants globals (N i la suma dels documents en total i sense enllaços)
     val (_, nDocs, sumaDocsSenseLinks) = dades.head
     val N = nDocs.toDouble
 
-    val sumaDocsAmbLinks = dades.map(_._1).sum
-    val saltAleatoriExt = (1.0 - gamma) / N
-    val sumatori1 = (1.0 / N) * sumaDocsSenseLinks
+    val sumaDocsAmbLinks = dades.map(_._1).sum // calculem el primer sumatori amb els documents que enllacen amb aquest document
+    val saltAleatoriExt = (1.0 - gamma) / N // calculem el salt aleatori
+    val sumatori1 = (1.0 / N) * sumaDocsSenseLinks // calculem el segon sumatori amb els documents sense links sortints
 
+    // i acabem de muntar la fórmula de teòria amb el factor de frenada
     val nouPR = saltAleatoriExt + gamma * (sumaDocsAmbLinks + sumatori1)
     (titol, nouPR)
   }
 
+  // 4. Càlcul  del tf_idf per poder comparar la similitud de dos documents
+  // donat un document amb títol i una llista de paraules i enllaços, compta la freqüència de cada paraula dins del seu cos
   def mappingSimilitudDocuments(titol: String, refsAndCos: List[(List[String], List[String])]): List[(String, (String, Int))] = {
     val cos = refsAndCos.head._2
     val freqs = Simil.llistaFreqs(cos)
 
+    // després, inverteix la clau per, donada una paraula aconseguir el títol del document on apareix i amb quina freqüència
     freqs.map((paraula, freq) => (paraula, (titol, freq)))
   }
+  // agrupa per cada paraula tots els documents on apareix i calcula en quants documents diferents surt (df)
   def reducingSimilitudDocuments(paraula: String, dades: List[(String, Int)]): (String, (Int, List[(String, Int)])) = {
     val numDocs = dades.length
 
     (paraula, (numDocs, dades)) // retorna per cada paraula, en quants documents apareix i la llista dels documents i vegades que apareix en aquest document
   }
 
+  // 5. Càlcul de la similitud cosinus per parelles de documents
+  // donada una parella composta pel document A i pel document B, les passa directament al reducer
   def mappingCalculSimilitudCosinus(fitxer: (String, String), parella: List[(String, List[(String, Double)], String, List[(String, Double)])]): List[((String, String), (List[(String, Double)], List[(String, Double)]))] = {
     val (_, parellaA, _, parellaB) = parella.head
 
     List((fitxer, (parellaA, parellaB)))
   }
+  // fent ús de la funció "cosinesimV2" (igual que a la primera part, modificada) i calcula la similitud del cosinus entre els dos documents
   def reducingCalculSimilitudCosinus(parella: (String, String), llistaParaulesPesos: List[(List[(String, Double)], List[(String, Double)])]): ((String, String), Double) = {
     val (parellaA, parellaB) = llistaParaulesPesos.head
 
@@ -307,30 +337,13 @@ object MRFunctions {
 object Viqui extends App {
   // Funcions auxiliars
 
-  // donat un bloc de codi de tipus genèric, retorna una tupla amb el retorn del codi i el temps (en segons) que ha trigat en executar-se
-  def timeMeasurement[A](block: => A): (A, Double) = {
-    val t0 = System.currentTimeMillis() // obté l'instant de temps en milisegons
-    val retorn = block // executa el bloc de codi
-    val t1 = System.currentTimeMillis() // obté l'instant de temps en milisegons
-
-    (retorn, (t1 - t0).toDouble / 1000)
-  }
-
-  // donat un document D i una llista de documents, retorna els documents als quals enllaça D
-  def kappa(d: String, docs: List[(String, (List[String], List[String]))]): List[String] = {
-    docs.filter(_._1 == d).map((_, x) => x._1).head
-  }
-
-  // donat un document D i una llista de documents, retorna els documents que enllacen amb D
-  def delta(d: String, docs: List[(String, (List[String], List[String]))]): List[String] = {
-    docs.filter(_._2._1 `contains` d).map(_._1)
-  }
-
+  // donada la llista de documents, retorna el PageRank inicial per cada títol de document
   def calculPRInicial(docs: List[(String, (List[String], List[String]))]): List[(String, Double)] = {
     val initPR = 1.0 / docs.length
     for (i <- docs) yield (i._1, initPR)
   }
 
+  // donada la llista de documents, retorna el PageRank següent per cada títol de document tenint en compte el PageRank anterior
   def calculPRSeguent(docs: List[(String, (List[String], List[String]))], prAnt: List[(String, Double)]): List[(String, Double)] = {
     val N = docs.length.toDouble
     val mapPR = prAnt.toMap
@@ -345,7 +358,7 @@ object Viqui extends App {
     val sumaDocsSenseLinks = docsSenseLinks.map(x => mapPR(x._1)).sum
     val sumatori1 = (1.0 / N) * sumaDocsSenseLinks
 
-    // iterem per calcular la primera part amb cada document i els documents enllacen a ell, i unificar amb la segona part
+    // iterem per calcular la primera part amb cada document i els documents enllacen a ell mateix, i posteriorment, unificar amb la segona part
     for (i <- docs) yield
       // calculem la primera part del sumatori
       val docsAmbLinks = docsAmbSet.filter(_._2 `contains` i._1).map(_._1).filter(x => midaKappa(x) > 0)
@@ -357,106 +370,104 @@ object Viqui extends App {
       (i._1, nouPR)
   }
 
+  // donada la llista de documents, calcula de forma iterativa per cada document el seu PageRank, fent servir l'algorisme explicat a l'enunciat de la pràctica, fins que convergeixi
   def calculPR(docs: List[(String, (List[String], List[String]))]): List[(String, Double)] = {
     def bucleCalculPR(t: Int, PRAct: List[(String, Double)]): List[(String, Double)] = {
-      val auxMapPRAct = PRAct.toMap
-      docs.map(x => (x._1, (x._2._1, auxMapPRAct(x._1))))
+      val PRSeg = calculPRSeguent(docs, PRAct) // calculem de cada títol de document, el PageRank següent
 
-      val PRSeg = calculPRSeguent(docs, PRAct)
-
+      // calculem la diferència absoluta acumulada entre l'iteració actual i la següent per comprovar si ha convergit
       val mapAct = PRAct.toMap
       val mapSeg = PRSeg.toMap
       val diffTotal = docs.map(x => Math.abs(mapSeg(x._1) - mapAct(x._1))).sum
 
+      // comprovem si ha convergit (hem arribat al final de l'algorisme) i si s'ha arribat al màxim nombre d'iteracions
       val maxIter = t >= 5
       val convergit = diffTotal <= 1e-3
 
+      // llavors, l'algorisme acaba quan...
       (maxIter, convergit) match {
-        case (true, _) => PRSeg
-        case (false, true) => PRSeg
-        case (false, false) => bucleCalculPR(t + 1, PRSeg)
+        case (true, _) => PRSeg // s'ha assolit el nombre màxim d'iteracions
+        case (false, true) => PRSeg // l'algorisme del PageRank ha convergit
+        case (false, false) => bucleCalculPR(t + 1, PRSeg) // si no passa res de l'anterior, fem una iteració més de l'algorisme del PageRank
       }
     }
 
+    // obtenim el PageRank inicial i comencem l'algorisme
     val PRIni = calculPRInicial(docs)
     bucleCalculPR(1, PRIni)
   }
 
-  def generarLlistaFitxersRefs(fitxer: String): (String, (List[String], List[String])) = {
-    val res = ViquipediaParse.parseViquipediaFile(fitxer)
-    res match
-      case ViquipediaParse.ResultViquipediaParsing(titol, cos, refs) =>
-        // Netegem els links de manera eficient un sol cop
-        val refsNets = Utilitats.netejarRefs(titol, refs)
-
-        // Netejem el cos
-        val cosSenseRefs = cos.replace("[[", " ").replace("]]", " ").replace("|", " ").trim
-        val cosNet = cosSenseRefs.toLowerCase.replaceAll("[^a-záéíóúàèòïüçñ·\\s]", "").split("\\s+").filter(_.nonEmpty).toList
-
-        (titol, (refsNets, cosNet))
-      case _ => ("", (List(), List()))
-  }
+  // Codi principal
 
   // variables inicials
   val configuracio = 20 // List(1, 4, 10, 20)
   val documentsDir = "assets/viquipedia/documents"
 
+  println(s"================== Prova amb $configuracio actors ==================")
+
+  // obtenim la llista de documents, només les rutes absolutes, en una llista
   val llistaDocuments = ProcessListStrings.getListOfFiles(documentsDir).map(f => (f.getAbsolutePath, List()))
 
   // calcul del nombre mitjà de referències que tenen totes les pàgines
-  val (resultat, temps) = timeMeasurement(MR(llistaDocuments, MRFunctions.mappingMitjanaRefs, MRFunctions.reducingMitjanaRefs, configuracio, configuracio))
-  println(s"================== Prova amb $configuracio actors ==================")
-  println(s"La mitjana de referències per pàgina és: $resultat")
+  val (calculMitjanaRefs, temps) = Utilitats.timeMeasurement(MR(llistaDocuments, MRFunctions.mappingMitjanaRefs, MRFunctions.reducingMitjanaRefs, configuracio, configuracio))
+  println(s"================== MITJANA DE REFERÈNCIES EN TOTS ELS DOCUMENTS ==================")
+  println(s"La mitjana de referències per pàgina és: ${calculMitjanaRefs.head._2}")
   println(s"Ha trigat $temps segons")
 
+  println()
+
   // donada una query, fer una recomanació fent ús de l’algoritme Page-Rank
+  println("\n================ CERCA DOCUMENTS ================")
   val query = "Segona Guerra Mundial"
 
   val normalQuery = Simil.normalitzar(query)
   val normalFilteredQuery = Utilitats.extreureStopwords(normalQuery)
 
-  val (resultat2, temps2) = timeMeasurement(MR(llistaDocuments.map(f => (f._1, normalFilteredQuery)), MRFunctions.mappingCercaDocuments, MRFunctions.reducingCercaDocuments, configuracio, configuracio))
+  val (docsTrobats, temps2) = Utilitats.timeMeasurement(MR(llistaDocuments.map(f => (f._1, normalFilteredQuery)), MRFunctions.mappingCercaDocuments, MRFunctions.reducingCercaDocuments, configuracio, configuracio))
+  println(s"Ha trigat $temps2 segons")
 
-  val (resultat3, temps3) = timeMeasurement(calculPR(resultat2.toList).sortBy(-_._2))
-
-  println(s"Temps: $temps3 segons")
-  println("\n================ TOP 10 PÀGINES RECOMANADES ================")
-  val rankingTop100 = resultat3.take(100)
+  val (docsTrobatsOrd, temps3) = Utilitats.timeMeasurement(calculPR(docsTrobats.toList).sortBy(-_._2))
+  println(s"Ha trigat $temps3 segons")
+  println("\n================ TOP 100 PÀGINES RECOMANADES ================")
+  val rankingTop100 = docsTrobatsOrd.take(100)
   for (i <- rankingTop100) yield println(s"Pàgina ${i._1}. PageRank ${i._2}")
 
+  println()
+
   // detectar les pàgines que s’assemblen més, però no es referencien mútuament
+  println("\n================ PÀGINES SEMBLANTS ================")
   val titolsTop100 = rankingTop100.map(_._1).toSet
-  val top100Docs = resultat2.filter(x => titolsTop100 `contains` x._1).map(x => (x._1, List(x._2))).toList
+  val top100Docs = docsTrobats.filter(x => titolsTop100 `contains` x._1).map(x => (x._1, List(x._2))).toList
 
-  val (resultat4, temps4) = timeMeasurement(MR(top100Docs, MRFunctions.mappingSimilitudDocuments, MRFunctions.reducingSimilitudDocuments, configuracio, configuracio))
+  val (top100DocsSim, temps4) = Utilitats.timeMeasurement(MR(top100Docs, MRFunctions.mappingSimilitudDocuments, MRFunctions.reducingSimilitudDocuments, configuracio, configuracio))
+  println(s"Ha trigat $temps4 segons")
 
-  val resultat5 = for (i <- resultat4) yield (i._1, Math.log(top100Docs.length / i._2._1))
-  val mapRes5 = resultat5.toMap
+  val idfs = for (i <- top100DocsSim) yield (i._1, Math.log(top100Docs.length / i._2._1))
+  val mapIdfs = idfs
 
-  var tfIdFinal = for (i <- resultat4; idf = mapRes5(i._1); j <- i._2._2) yield
+  var tfIdFinal = for (i <- top100DocsSim; idf = mapIdfs(i._1); j <- i._2._2) yield
     val pes = j._2 * idf
     (j._1, i._1, pes)
 
-  val resultat6 = tfIdFinal.groupBy(_._1).map(x => (x._1, x._2.map(y => (y._2, y._3)))).toList
+  val docsSim = tfIdFinal.groupBy(_._1).map(x => (x._1, x._2.map(y => (y._2, y._3)))).toList
 
-  val mapRes6 = resultat6.toMap
-  val mapNomsDocsRes6 = mapRes6.keys.toList
-  val parellesNoms = Utilitats.crearParelles(mapNomsDocsRes6)
+  val mapDocsSim = docsSim.toMap
+  val mapNomsDocsRes = mapDocsSim.keys.toList
+  val parellesNoms = Utilitats.crearParelles(mapNomsDocsRes)
 
   val inputMR = parellesNoms.map(x =>
     val titol1 = x._1
     val titol2 = x._2
 
-    val parellaA = mapRes6(titol1).toList
-    val parellaB = mapRes6(titol2).toList
+    val parellaA = mapDocsSim(titol1).toList
+    val parellaB = mapDocsSim(titol2).toList
 
     ((titol1, titol2), List((titol1, parellaA, titol2, parellaB)))
   )
 
-  val (resultat7, temps7) = timeMeasurement(MR(inputMR, MRFunctions.mappingCalculSimilitudCosinus, MRFunctions.reducingCalculSimilitudCosinus, configuracio, configuracio))
-  val rankingPaginesMesSimilars = resultat7.filter(_._2 > 0.5)
-
-  println(s"Temps: $temps7 segons")
-  println("\n================ PARELLES DE PÀGINES MÉS SIMILARS ================")
-  for (i <- rankingPaginesMesSimilars) yield println(s"Pàgines ${i._1._1} i ${i._1._2}. Similitud ${i._2}")
+  val (documentsMesSimilars, temps5) = Utilitats.timeMeasurement(MR(inputMR, MRFunctions.mappingCalculSimilitudCosinus, MRFunctions.reducingCalculSimilitudCosinus, configuracio, configuracio))
+  val rankingDocumentsMesSimilars = documentsMesSimilars.filter(_._2 > 0.5)
+  println(s"Ha trigat $temps5 segons")
+  println("\n================ PARELLES DE DOCUMENTS MÉS SIMILARS ================")
+  for (i <- rankingDocumentsMesSimilars) yield println(s"Documents ${i._1._1} i ${i._1._2}. Similitud ${i._2}")
 }
