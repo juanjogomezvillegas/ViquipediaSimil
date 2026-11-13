@@ -3,14 +3,16 @@ package simil
 
 import utils.ProcessListStrings
 
+import scala.math.Ordered.orderingToOrdered
+
 object Simil extends App {
   // Funcions auxiliars
 
   // donat un array de (A, Int), retorna el mateix array ordenat de més gran a més petit
-  def quicksortf[A](xs: Array[(A, Int)]): Array[(A, Int)] =
+  def quicksortf[A, B : Ordering](xs: Array[(A, B)]): Array[(A, B)] =
     if xs.length <= 1 then xs
     else
-      val pivot: (A, Int) = xs(xs.length / 2)
+      val pivot: (A, B) = xs(xs.length / 2)
       Array.concat(
         quicksortf(xs filter (x => pivot._2 < x._2)),
         xs filter (x => x._2 == pivot._2),
