@@ -426,34 +426,43 @@ object ViquiFuncions {
 
   // donat el resultat de la funció recomanadorPageRank, retorna una llista amb les parelles de documents més similars
   def documentsSemblants(rankingDocsTop: List[(String, Double)], docsTrobats: List[(String, (List[String], List[String]))], similTfIdf: Double = 0.5, configuracio: Int = 20): (List[((String, String), Double)], Double) = {
+    // partim del ranking de documents trobats amb l'algorisme del PageRank, i ho convertim a un set (conjunt) només dels títols de cada document
     val rankingSet = rankingDocsTop.map(_._1).toSet
-    val top100DocsTrobats = docsTrobats.filter(x => rankingSet `contains` x._1).map(x => (x._1, List(x._2)))
+    val top100DocsTrobats = docsTrobats.filter(x => rankingSet `contains` x._1).map(x => (x._1, List(x._2))) // com que només tenim els títols, recuperem els links i el cos
 
+    // calcula la frequencia de paraules dins de cada document (tf)
     val (top100DocsSim, temps1) = Utilitats.timeMeasurement(MR(top100DocsTrobats, MRFunctions.mappingSimilitudDocuments, MRFunctions.reducingSimilitudDocuments, configuracio, configuracio))
 
+    // i calcula la inversa del que s'anomena, el document frequency (idf)
     val idfs = for (i <- top100DocsSim) yield (i._1, Math.log(top100DocsTrobats.length / i._2._1))
 
+    // i ajuntem tf i idf per calcular tf_idf com tf * idf
     val tfIdFinal = for (i <- top100DocsSim; idf = idfs(i._1); j <- i._2._2) yield
       val pes = j._2 * idf
       (j._1, i._1, pes)
 
+    // torna a agrupar les dades pel títol del document per construir la llista: List[(títol, List[(paraula, pes_tf_idf)])]
     val docsSim = tfIdFinal.groupBy(_._1).map(x => (x._1, x._2.map(y => (y._2, y._3)))).toList
 
-    val mapDocsSim = docsSim.toMap
-    val mapNomsDocsRes = mapDocsSim.keys.toList
+    val mapDocsSim = docsSim.toMap // converteix la llista anterior en un Map per accedir ràpidament
+    val mapNomsDocsRes = mapDocsSim.keys.toList // obté la llista amb tots els títols dels documents
+    // genera totes les combinacions possibles de parelles de documents sense repeticions, i prepara la sortida com a entrada pel proper MapReduce
     val parelles = Utilitats.crearParelles(mapNomsDocsRes).map(x =>
-      val titol1 = x._1
+      val titol1 = x._1 // títol del document 1 i del document 2
       val titol2 = x._2
 
-      val parellaA = mapDocsSim(titol1).toList
+      val parellaA = mapDocsSim(titol1).toList // per cada títol dels documents de la parella recupera els seus links i el cos
       val parellaB = mapDocsSim(titol2).toList
 
+      // i retorna una tupla on la primera posició són els títols dels dos documents, i la segona és una llista amb una tupla on hi ha la info del document 1 i del document 2
+      // entenen info com: el títol, els links i el cos
       ((titol1, titol2), List((titol1, parellaA, titol2, parellaB)))
     )
 
+    // finalment, calcula la similitud del cosinus entre els vectors tf_idf de cada parella de documents, mesurant i retornant també el temps
     val (docsMesSimilars, temps2) = Utilitats.timeMeasurement(MR(parelles, MRFunctions.mappingCalculSimilitudCosinus, MRFunctions.reducingCalculSimilitudCosinus, configuracio, configuracio))
 
-    (docsMesSimilars.filter(_._2 > similTfIdf).toList, temps1 + temps2)
+    (docsMesSimilars.filter(_._2 > similTfIdf).toList, temps1 + temps2) // a dins del retorn, només retornem aquelles parelles que tinguin una similitud que superi un llindar (0.5)
   }
 }
 
