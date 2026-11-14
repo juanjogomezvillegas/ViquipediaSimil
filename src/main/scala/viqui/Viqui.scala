@@ -203,37 +203,7 @@ object MRFunctions {
     (titol, refsAndCos.head)
   }
 
-  // 3. Calcul del PageRank següent en cada iteració
-  // donat un document amb títol i una tupla amb una llista de links sortints (kappa), el PageRank anterior, el nombre de documents en total i el nombre de document que no tenen cap link de sortida
-  def mappingPRSeguent(titol: String, dades: List[(List[String], Double, Int, Double)]): List[(String, (Double, Int, Double))] = {
-    val (links, prAnt, nDocs, sumaDocsSenseLinks) = dades.head
-
-    val cua = if links.nonEmpty then
-      val pes = prAnt / links.length.toDouble // el PageRank anterior / kappa(document actual amb titol == titol)
-      links.map(x => (x, (pes, nDocs, sumaDocsSenseLinks)))
-    else
-      Nil
-
-    // retorna només una llista amb els documents que tenen almenys un enllaç de sortida
-    List((titol, (0.0, nDocs, sumaDocsSenseLinks))) ::: cua
-  }
-  // implementació de la fórmula completa del PageRank descrita a l'enunciat de la pràctica
-  def reducingPRSeguent(titol: String, dades: List[(Double, Int, Double)]): (String, Double) = {
-    val gamma = 0.85 // probabilitat de seguir navegant fent clic a un enllaç
-    // recuperem les constants globals (N i la suma dels documents en total i sense enllaços)
-    val (_, nDocs, sumaDocsSenseLinks) = dades.head
-    val N = nDocs.toDouble
-
-    val sumaDocsAmbLinks = dades.map(_._1).sum // calculem el primer sumatori amb els documents que enllacen amb aquest document
-    val saltAleatoriExt = (1.0 - gamma) / N // calculem el salt aleatori
-    val sumatori1 = (1.0 / N) * sumaDocsSenseLinks // calculem el segon sumatori amb els documents sense links sortints
-
-    // i acabem de muntar la fórmula de teòria amb el factor de frenada
-    val nouPR = saltAleatoriExt + gamma * (sumaDocsAmbLinks + sumatori1)
-    (titol, nouPR)
-  }
-
-  // 4. Càlcul  del tf_idf per poder comparar la similitud de dos documents
+  // 3. Càlcul  del tf_idf per poder comparar la similitud de dos documents
   // donat un document amb títol i una llista de paraules i enllaços, compta la freqüència de cada paraula dins del seu cos
   def mappingSimilitudDocuments(titol: String, refsAndCos: List[(List[String], List[String])]): List[(String, (String, Int))] = {
     val cos = refsAndCos.head._2
@@ -249,7 +219,7 @@ object MRFunctions {
     (paraula, (numDocs, dades)) // retorna per cada paraula, en quants documents apareix i la llista dels documents i vegades que apareix en aquest document
   }
 
-  // 5. Càlcul de la similitud cosinus per parelles de documents
+  // 4. Càlcul de la similitud cosinus per parelles de documents
   // donada una parella composta pel document A i pel document B, les passa directament al reducer
   def mappingCalculSimilitudCosinus(fitxer: (String, String), parella: List[(String, List[(String, Double)], String, List[(String, Double)])]): List[((String, String), (List[(String, Double)], List[(String, Double)]))] = {
     val (_, parellaA, _, parellaB) = parella.head
@@ -357,9 +327,9 @@ object PageRank {
     val sumaDocsSenseLinks = docsSenseLinks.map(x => mapPR(x._1)).sum
     val sumatori1 = (1.0 / N) * sumaDocsSenseLinks
 
-    // iterem per calcular la primera part amb cada document i els documents enllacen a ell mateix, i posteriorment, unificar amb la segona part
+    // iterem per calcular la primera part de la formula amb cada document i els documents que enllacen a ell mateix, i posteriorment, unificar amb la segona part
     for (i <- docs) yield
-      // calculem la primera part del sumatori
+      // calculem la primera part de la formula
       val docsAmbLinks = docsAmbSet.filter(_._2 `contains` i._1).map(_._1).filter(x => midaKappa(x) > 0)
       val sumaDocsAmbLinks = docsAmbLinks.map(x => mapPR(x) / midaKappa(x).toDouble).sum
 
@@ -479,7 +449,7 @@ object Viqui extends App {
   // calcul del nombre mitjà de referències que tenen totes les pàgines
   println(s"================== MITJANA DE REFERÈNCIES EN TOTS ELS DOCUMENTS ==================")
   val res1 = ViquiFuncions.mitjanaDocuments(llistaDocuments, configuracio)
-  println(s"La mitjana de referències per pàgina és: ${res1._1}")
+  println(s"La mitjana de referències per pàgina és: ${res1._1("mitjana_total_refs")}")
   println(s"Ha trigat ${res1._2} segons")
 
   println()
