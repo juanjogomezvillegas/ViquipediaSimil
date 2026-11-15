@@ -5,7 +5,7 @@ import scala.io.StdIn.readLine
 import scala.concurrent.Await
 import scala.concurrent.duration.*
 import scala.language.postfixOps
-import akka.actor.{Actor, ActorRef, ActorSystem, PoisonPill, Props}
+import akka.actor.{Actor, ActorRef, ActorSystem, Props}
 import akka.pattern.ask
 import akka.util.Timeout
 import mapreduce.*
